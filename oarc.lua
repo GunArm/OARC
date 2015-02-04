@@ -134,6 +134,15 @@ function setTextColor(color)
    component.gpu.setForeground(code)
 end
 
+function writeRight(value)
+   local width, height = component.gpu.getResolution()
+   local pos, line = term.getCursor()
+   local remaining = width - pos + 1 
+   local length = string.len(tostring(value))
+   local spaces = remaining - length
+   term.write(string.rep(" ", spaces) .. value)
+end
+
 --------------------------------------------------------
 --------------------------------------------------------
 
@@ -143,43 +152,48 @@ local function renderDisplay(state)
 
    if state.reactor.active then
       setTextColor("green")
-      status = "       Online"
+      status = "Online"
    else
       setTextColor("red")
-      status = "      Offline"
+      status = "Offline"
    end
 
-   term.write(status .. "        ")
+   writeRight(status)
    setTextColor("white")
    term.setCursor(1,2)
-   term.write("Core Temp:             " .. round(state.reactor.coreTemp, 0) .. " C         ")
+   term.write("Core Temp:")
+   writeRight(round(state.reactor.coreTemp, 0) .. " C")
    term.setCursor(1,3)
-   term.write("Case Temp:             " .. round(state.reactor.caseTemp, 0) .. " C         ")
+   term.write("Case Temp:")
+   writeRight(round(state.reactor.caseTemp, 0) .. " C")
    term.setCursor(1,4)
-   term.write("Energy Buffer:           " .. format_num(state.reactor.energyStored, 0) .. " RF         ")
+   term.write("Energy Buffer:")
+   writeRight(format_num(state.reactor.energyStored, 0) .. " RF")
    term.setCursor(1,5)
-   term.write("Energy Output: ")
+   term.write("Energy Output:")
    setTextColor("yellow")
-   term.write(format_num(state.reactor.rfPerTick, 2) .. " RF/t         ")
+   writeRight(format_num(state.reactor.rfPerTick, 2) .. " RF/t")
    setTextColor("white")
 
    term.setCursor(1,6)
-   term.write("Fuel Reactivity:      " .. format_num(state.reactor.reactivity, 2) .. "%         ")
+   term.write("Fuel Reactivity:")
+   writeRight(format_num(state.reactor.reactivity, 2) .. "%")
    term.setCursor(1,7)
-   term.write("Fuel Consumption:  " .. format_num(state.reactor.mbPerTick, 3) .. " mB/t         ")
+   term.write("Fuel Consumption:")
+   writeRight(format_num(state.reactor.mbPerTick, 3) .. " mB/t")
    term.setCursor(1,8)
-   term.write("Efficiency: ")
+   term.write("Efficiency:")
    setTextColor("purple")
    if(state.rfPerIngot == nil) then
-      term.write("   n/a RF/ing")
+      writeRight("n/a   RF/ing")
    else
-      term.write(format_num(state.rfPerIngot,0) .. " RF/ing")
+      writeRight(format_num(state.rfPerIngot,0) .. " RF/ing")
    end
    setTextColor("white")
    term.setCursor(1,9)
-   term.write("Rod Insertion:             ")
+   term.write("Rod Insertion:")
    setTextColor("blue")
-   term.write(state.reactor.rodInsertion .. "%          ")
+   writeRight(state.reactor.rodInsertion .. "%")
    setTextColor("white")
    
 end
