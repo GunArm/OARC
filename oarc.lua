@@ -163,6 +163,11 @@ end
 
 local function renderDisplay(state)
    term.setCursor(1,1)
+   if(state.errorMsg ~= nil) then
+      setTextColor("red")
+      print(state.errorMsg)
+   end
+   
    term.write("Reactor Status: ")
    if state.reactor.active then
       setTextColor("green")
