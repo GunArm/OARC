@@ -17,6 +17,7 @@ local function readReactorState()
    reactor.component = r
    reactor.active = r.getActive()
    reactor.energyStored = r.getEnergyStored()
+   reactor.maxEnergyStored = 10000000 -- no method for this atm, hard coded constant
    reactor.coreTemp = r.getFuelTemperature()
    reactor.caseTemp = r.getCasingTemperature()
    reactor.reactivity = r.getFuelReactivity()
@@ -37,6 +38,15 @@ local function readReactorState()
    reactor.exteriorVolume = (xmax-xmin+1)*(ymax-ymin+1)*(zmax-zmin+1)
    
    return reactor
+end
+
+local function readCapacitorState()
+   local c = component.capacitor_bank
+   local cap = {}
+   cap.energyStored = c.getEnergyStored()
+   cap.maxEnergyStored = c.getMaxEnergyStored()
+   cap.avgDetla = c.getAverageChangePerTick()
+   return cap
 end
 
 local function getState()
@@ -62,16 +72,20 @@ local function getState()
       end
    end
    
+   if(component.isAvailable("capacitor_bank")) then
+      state.cap = readCapacitorState()
+      state.energyStored = cap.energyStored
+      state.energyLevel = cap.energyStored / cap.maxEnergyStored
+   else
+      state.energyStored = state.reactor.energyStored
+      state.energyLevel = state.reactor.energyStored / state.reactor.maxEnergyStored
+   end
+   
    return state
 end
 
-
-
 local function makeAdjustments(state)
 end
-
-
-
 
 ------------------------------------------------
 -- helpers 
@@ -150,7 +164,6 @@ end
 local function renderDisplay(state)
    term.setCursor(1,1)
    term.write("Reactor Status: ")
-
    if state.reactor.active then
       setTextColor("green")
       status = "Online"
@@ -158,20 +171,23 @@ local function renderDisplay(state)
       setTextColor("red")
       status = "Offline"
    end
-
    writeRight(status)
    setTextColor("white")
+
    term.setCursor(1,2)
    term.write("Core Temp:")
    writeRight(round(state.reactor.coreTemp, 0) .. " C")
+
    term.setCursor(1,3)
    term.write("Case Temp:")
    writeRight(round(state.reactor.caseTemp, 0) .. " C")
+
    term.setCursor(1,4)
-   term.write("Energy Buffer:")
-   writeRight(format_num(state.reactor.energyStored, 0) .. " RF")
+   term.write("Power Stored:")
+   writeRight(round(state.energyLevel * 100,0) .. "% " .. format_num(state.energyStored, 0) .. " RF", -1)
+
    term.setCursor(1,5)
-   term.write("Energy Output:")
+   term.write("Generating:")
    setTextColor("yellow")
    writeRight(format_num(state.reactor.rfPerTick, 2) .. " RF/t")
    setTextColor("white")
@@ -179,9 +195,11 @@ local function renderDisplay(state)
    term.setCursor(1,6)
    term.write("Fuel Reactivity:")
    writeRight(format_num(state.reactor.reactivity, 2) .. "%")
+
    term.setCursor(1,7)
    term.write("Fuel Consumption:")
    writeRight(format_num(state.reactor.mbPerTick, 3) .. " mB/t")
+
    term.setCursor(1,8)
    term.write("Efficiency:")
    setTextColor("purple")
@@ -191,6 +209,7 @@ local function renderDisplay(state)
       writeRight(format_num(state.rfPerIngot,0) .. " RF/ing")
    end
    setTextColor("white")
+
    term.setCursor(1,9)
    term.write("Rod Insertion:")
    setTextColor("blue")
