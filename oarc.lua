@@ -8,6 +8,7 @@ local running = true
 local refreshInterval = 1
 
 local function init()
+   term.clear()
 end
 
 local function readReactorState()
