@@ -170,7 +170,11 @@ local function renderDisplay(state)
    term.setCursor(1,8)
    term.write("Efficiency: ")
    setTextColor("purple")
-   term.write(format_num(state.rfPerIngot,0) .. " RF/ing")
+   if(state.rfPerIngot == nil) then
+      term.write("   n/a RF/ing")
+   else
+      term.write(format_num(state.rfPerIngot,0) .. " RF/ing")
+   end
    setTextColor("white")
    term.setCursor(1,9)
    term.write("Rod Insertion:             ")
