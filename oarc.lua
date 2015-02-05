@@ -4,13 +4,15 @@ local event = require("event")
 local keyboard = require("keyboard")
 
 local running = true
+local loopNum = 0
 
 -- config
 local refreshInterval = 1
-local minPowerLevel = 70
+local minPowerLevel = 85
 local maxPowerLevel = 90
 local emaAlphaFast = .75   --  0 < alpha < 1
 local emaAlphaSlow = .25   --  0 < alpha < 1
+local skippedAdjustmentsInRange = 5
 -- /config
 
 local prevState
@@ -145,7 +147,7 @@ local function makeAdjustments(state)
          if(state.energyLevelDelta <= 0) then increaseHeat() end
       elseif(state.energyLevelFastEma >= maxPowerLevel) then
          if(state.energyLevelDelta >= 0) then decreaseHeat() end
-      else  -- energy level within range, hold steady 
+      elseif(loopNum % skippedAdjustmentsInRange == 0) then -- energy level within range, hold steady 
          if(state.energyLevelDelta < 0) then increaseHeat() end
          if(state.energyLevelDelta > 0) then decreaseHeat() end
       end
@@ -303,6 +305,7 @@ end
 
 init()
 while running do
+   loopNum = loopNum + 1
    state = getState()
    makeAdjustments(state)
    renderDisplay(state)
