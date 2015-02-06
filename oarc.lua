@@ -5,10 +5,47 @@ local keyboard = require("keyboard")
 
 local running = true
 
+-- config
 local refreshInterval = 1
+local minPowerLevel = 70
+local maxPowerLevel = 90
+local emaAlphaFast = .75   --  0 < alpha < 1
+local emaAlphaSlow = .25   --  0 < alpha < 1
+-- /config
+
+local prevState
 
 local function init()
    term.clear()
+end
+
+function calcEma(newValue, prevEma, alpha)
+   return prevEma + alpha * (newValue - prevEma)
+end
+
+function calcFastEma(newValue, prevEma)
+   return calcEma(newValue, prevEma, emaAlphaFast)
+end
+
+function calcSlowEma(newValue, prevEma)
+   return calcEma(newValue, prevEma, emaAlphaSlow)
+end
+
+local function adjustRods(change)
+   local reactor = component.br_reactor
+   local level = reactor.getControlRodLevel(0)
+   local newLevel = level + change
+   if(newLevel >= 0 and newLevel <= 100) then 
+      reactor.setAllControlRodLevels(newLevel) 
+   end
+end
+
+local function increaseHeat()
+   adjustRods(-1)
+end
+
+local function decreaseHeat()
+   adjustRods(1)
 end
 
 local function readReactorState()
@@ -27,7 +64,7 @@ local function readReactorState()
    
    if(reactor.activelyCooled) then
       reactor.steamProduced = r.getHotFluidProducedLastTick()
-      reactor.coolantLevel = r.getCoolantAmount() / r.getCoolantAmountMax()
+      reactor.coolantLevel = (r.getCoolantAmount() / r.getCoolantAmountMax()) * 100
    else -- passively cooled
       reactor.rfPerTick = r.getEnergyProducedLastTick()
    end
@@ -45,7 +82,7 @@ local function readCapacitorState()
    local cap = {}
    cap.energyStored = c.getEnergyStored()
    cap.maxEnergyStored = c.getMaxEnergyStored()
-   cap.avgDetla = c.getAverageChangePerTick()
+   --cap.avgDetla = c.getAverageChangePerTick()
    return cap
 end
 
@@ -74,17 +111,45 @@ local function getState()
    
    if(component.isAvailable("capacitor_bank")) then
       state.cap = readCapacitorState()
-      state.energyStored = cap.energyStored
-      state.energyLevel = cap.energyStored / cap.maxEnergyStored
+      state.energyStored = state.cap.energyStored
+      state.energyLevel = (state.cap.energyStored / state.cap.maxEnergyStored) * 100
    else
       state.energyStored = state.reactor.energyStored
-      state.energyLevel = state.reactor.energyStored / state.reactor.maxEnergyStored
+      state.energyLevel = (state.reactor.energyStored / state.reactor.maxEnergyStored) * 100
    end
    
+   if(prevState == nil) then -- to seed the EMA spin-up
+      prevState = state 
+      prevState.energyLevelFastEma = prevState.energyLevel
+      prevState.energyLevelSlowEma = prevState.energyLevel
+   end   
+
+   state.energyLevelFastEma = calcFastEma(state.energyLevel, prevState.energyLevelFastEma)
+   state.energyLevelSlowEma = calcSlowEma(state.energyLevel, prevState.energyLevelSlowEma)
+   state.energyLevelDelta = state.energyLevelFastEma - state.energyLevelSlowEma
+
    return state
 end
 
 local function makeAdjustments(state)
+   if(state.errorMsg ~= nil) then
+      -- if anything is connected, shut it all off
+      return;
+   end
+   
+   if(state.reactor.activelyCooled) then
+      -- adjust accordingly
+   else  -- passively cooled
+      -- try to get us within desired range, then try to hold steady
+      if(state.energyLevelFastEma <= minPowerLevel) then
+         if(state.energyLevelDelta <= 0) then increaseHeat() end
+      elseif(state.energyLevelFastEma >= maxPowerLevel) then
+         if(state.energyLevelDelta >= 0) then decreaseHeat() end
+      else  -- energy level within range, hold steady 
+         if(state.energyLevelDelta < 0) then increaseHeat() end
+         if(state.energyLevelDelta > 0) then decreaseHeat() end
+      end
+   end
 end
 
 ------------------------------------------------
@@ -157,8 +222,8 @@ function writeRight(value)
    local spaces = remaining - length
    term.write(string.rep(" ", spaces) .. value)
 end
-
 --------------------------------------------------------
+--- /helpers
 --------------------------------------------------------
 
 local function renderDisplay(state)
@@ -189,7 +254,7 @@ local function renderDisplay(state)
 
    term.setCursor(1,4)
    term.write("Power Stored:")
-   writeRight(round(state.energyLevel * 100,0) .. "% " .. format_num(state.energyStored, 0) .. " RF", -1)
+   writeRight(round(state.energyLevel,0) .. "% " .. format_num(state.energyStored, 0) .. " RF", -1)
 
    term.setCursor(1,5)
    term.write("Generating:")
@@ -221,6 +286,11 @@ local function renderDisplay(state)
    writeRight(state.reactor.rodInsertion .. "%")
    setTextColor("white")
    
+   term.setCursor(1,10)
+   local statecopy = state
+   statecopy.reactor = nil
+   statecopy.cap = nil
+   for k,v in pairs(statecopy) do print(k .. ":       " .. v) end
 end
 
 function getUserInput()
@@ -236,6 +306,6 @@ while running do
    state = getState()
    makeAdjustments(state)
    renderDisplay(state)
-   os.sleep(1)
    getUserInput()
+   prevState = state
 end
