@@ -8,8 +8,8 @@ local loopNum = 0
 
 -- config
 local refreshInterval = 1
-local minPowerLevel = 85
-local maxPowerLevel = 90
+local minDesiredFullness = .85
+local maxDesiredFullness = .90
 local emaAlphaFast = .75   --  0 < alpha < 1
 local emaAlphaSlow = .25   --  0 < alpha < 1
 local skippedAdjustmentsInRange = 5
@@ -37,16 +37,16 @@ local function adjustRods(change)
    local reactor = component.br_reactor
    local level = reactor.getControlRodLevel(0)
    local newLevel = level + change
-   if(newLevel >= 0 and newLevel <= 100) then 
-      reactor.setAllControlRodLevels(newLevel) 
+   if(newLevel >= 0 and newLevel <= 100) then
+      reactor.setAllControlRodLevels(newLevel)
    end
 end
 
-local function increaseHeat()
+local function increaseThrottle()
    adjustRods(-1)
 end
 
-local function decreaseHeat()
+local function decreaseThrottle()
    adjustRods(1)
 end
 
@@ -63,19 +63,21 @@ local function readReactorState()
    reactor.mbPerTick = r.getFuelConsumedLastTick()
    reactor.activelyCooled = r.isActivelyCooled()
    reactor.rodInsertion = r.getControlRodLevel(0)
-   
+
    if(reactor.activelyCooled) then
       reactor.steamProduced = r.getHotFluidProducedLastTick()
       reactor.coolantLevel = (r.getCoolantAmount() / r.getCoolantAmountMax()) * 100
    else -- passively cooled
       reactor.rfPerTick = r.getEnergyProducedLastTick()
    end
-   
+
+--[[
    local xmin, ymin, zmin = r.getMinimumCoordinate()
    local xmax, ymax, zmax = r.getMaximumCoordinate()
    reactor.interiorVolume = (xmax-xmin-1)*(ymax-ymin-1)*(zmax-zmin-1)
    reactor.exteriorVolume = (xmax-xmin+1)*(ymax-ymin+1)*(zmax-zmin+1)
-   
+   ]]
+
    return reactor
 end
 
@@ -84,7 +86,6 @@ local function readCapacitorState()
    local cap = {}
    cap.energyStored = c.getEnergyStored()
    cap.maxEnergyStored = c.getMaxEnergyStored()
-   --cap.avgDetla = c.getAverageChangePerTick()
    return cap
 end
 
@@ -100,7 +101,7 @@ local function getState()
    state.reactor = readReactorState()
    if(state.reactor.activelyCooled) then
       --[[
-      readTurbineState()   
+      readTurbineState()
       if(reactor.mbPerTick ~= 0) then
          state.rfPerIngot = poweroutputsum / (reactor.mbPerTick / 1000)
       end
@@ -110,25 +111,27 @@ local function getState()
          state.rfPerIngot = state.reactor.rfPerTick / (state.reactor.mbPerTick / 1000)
       end
    end
-   
+
    if(component.isAvailable("capacitor_bank")) then
       state.cap = readCapacitorState()
       state.energyStored = state.cap.energyStored
-      state.energyLevel = (state.cap.energyStored / state.cap.maxEnergyStored) * 100
+      state.maxEnergyStored = state.cap.maxEnergyStored
+      state.energyFullness = state.cap.energyStored / state.maxEnergyStored
    else
       state.energyStored = state.reactor.energyStored
-      state.energyLevel = (state.reactor.energyStored / state.reactor.maxEnergyStored) * 100
+      state.maxEnergyStored = state.reactor.maxEnergyStored
+      state.energyFullness = state.reactor.energyStored / state.maxEnergyStored
    end
-   
-   if(prevState == nil) then -- to seed the EMA spin-up
-      prevState = state 
-      prevState.energyLevelFastEma = prevState.energyLevel
-      prevState.energyLevelSlowEma = prevState.energyLevel
-   end   
 
-   state.energyLevelFastEma = calcFastEma(state.energyLevel, prevState.energyLevelFastEma)
-   state.energyLevelSlowEma = calcSlowEma(state.energyLevel, prevState.energyLevelSlowEma)
-   state.energyLevelDelta = state.energyLevelFastEma - state.energyLevelSlowEma
+   if(prevState == nil) then -- to seed the initial EMA spin-up at startup
+      prevState = state
+      prevState.energyStoredFastEma = prevState.energyStored
+      prevState.energyStoredSlowEma = prevState.energyStored
+   end
+
+   state.energyStoredFastEma = calcFastEma(state.energyStored, prevState.energyStoredFastEma)
+   state.energyStoredSlowEma = calcSlowEma(state.energyStored, prevState.energyStoredSlowEma)
+   state.energyStoredDelta = state.energyStoredFastEma - state.energyStoredSlowEma
 
    return state
 end
@@ -138,29 +141,50 @@ local function makeAdjustments(state)
       -- if anything is connected, shut it all off
       return;
    end
-   
+   state.adjustment = "n/a"
+   state.adjustmentColor = "white"
    if(state.reactor.activelyCooled) then
       -- adjust accordingly
    else  -- passively cooled
       -- try to get us within desired range, then try to hold steady
-      if(state.energyLevelFastEma <= minPowerLevel) then
-         if(state.energyLevelDelta <= 0) then increaseHeat() end
-      elseif(state.energyLevelFastEma >= maxPowerLevel) then
-         if(state.energyLevelDelta >= 0) then decreaseHeat() end
-      elseif(loopNum % skippedAdjustmentsInRange == 0) then -- energy level within range, hold steady 
-         if(state.energyLevelDelta < 0) then increaseHeat() end
-         if(state.energyLevelDelta > 0) then decreaseHeat() end
+      if(state.energyStoredFastEma <= minDesiredFullness * state.maxEnergyStored) then
+         if(state.energyStoredDelta <= 0) then
+            increaseThrottle()
+            state.adjustmentColor = "red"
+            state.adjustment = "Increasing throttle"
+         else
+            -- no adjustment
+            state.adjustmentColor = "green"
+            state.adjustment = "Rising toward range"
+         end
+      elseif(state.energyStoredFastEma >= maxDesiredFullness * state.maxEnergyStored) then
+         if(state.energyStoredDelta >= 0) then
+            decreaseThrottle()
+            state.adjustmentColor = "red"
+            state.adjustment = "Decreasing throttle"
+         else
+            -- no adjustment
+            state.adjustmentColor = "green"
+            state.adjustment = "Lowering toward range"
+         end
+      else
+         state.adjustmentColor = "white"
+         state.adjustment = "Maintaining Range"
+         if(loopNum % skippedAdjustmentsInRange == 0) then -- energy within range, hold steady
+            if(state.energyStoredDelta < 0) then increaseThrottle() end
+            if(state.energyStoredDelta > 0) then decreaseThrottle() end
+         end
       end
    end
 end
 
 ------------------------------------------------
--- helpers 
+-- helpers
 ------------------------------------------------
 
 function comma_value(amount)
   local formatted = tostring(amount)
-  while true do  
+  while true do
     formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1,%2')
     if (k==0) then
       break
@@ -210,6 +234,7 @@ function setTextColor(color)
    elseif(color == "green") then code = 0x009000
    elseif(color == "red") then code = 0xFF0000
    elseif(color == "yellow") then code = 0xBBBB00
+   elseif(color == "orange") then code = 0xFF8000
    elseif(color == "purple") then code = 0xBB00BB
    elseif(color == "blue") then code = 0x0000FF
    end
@@ -219,7 +244,7 @@ end
 function writeRight(value)
    local width, height = component.gpu.getResolution()
    local pos, line = term.getCursor()
-   local remaining = width - pos + 1 
+   local remaining = width - pos + 1
    local length = string.len(tostring(value))
    local spaces = remaining - length
    term.write(string.rep(" ", spaces) .. value)
@@ -234,7 +259,7 @@ local function renderDisplay(state)
       setTextColor("red")
       print(state.errorMsg)
    end
-   
+
    term.write("Reactor Status: ")
    if state.reactor.active then
       setTextColor("green")
@@ -247,32 +272,58 @@ local function renderDisplay(state)
    setTextColor("white")
 
    term.setCursor(1,2)
+   term.write("Power Stored:")
+   writeRight(round(state.energyFullness * 100,2) .. "%  " .. format_num(state.energyStored, 0) .. " RF")
+
+   term.setCursor(1,3)
+   term.write("Generating:")
+   setTextColor("yellow")
+   writeRight(format_num(state.reactor.rfPerTick, 0) .. " RF/t")
+   setTextColor("white")
+
+   -- this will only be accurate if the reactor is the only thing charging the buffer
+   term.setCursor(1,4)
+   term.write("Load:")
+   setTextColor("orange")
+   writeRight("(~) " .. format_num(state.reactor.rfPerTick - state.energyStoredDelta, 0) .. " RF/t")
+   setTextColor("white")
+
+   term.setCursor(1,5)
+   term.write("Delta:")
+   --setTextColor((state.energyStoredDelta >= 0) and "green" or "red"))
+   writeRight(format_num(state.energyStoredDelta, 2) .. " RF/t")
+   --setTextColor("white")
+
+   term.setCursor(1,6)
+   term.write("Throttle:")
+   setTextColor("blue")
+   writeRight(100 - state.reactor.rodInsertion .. "%")
+   setTextColor("white")
+
+   term.setCursor(1,7)
+   term.write("Status:")
+   setTextColor(state.adjustmentColor)
+   writeRight(state.adjustment)
+   setTextColor("white")
+
+
+   term.setCursor(1,9)
    term.write("Core Temp:")
    writeRight(round(state.reactor.coreTemp, 0) .. " C")
 
-   term.setCursor(1,3)
+--[[   term.setCursor(1,3)
    term.write("Case Temp:")
-   writeRight(round(state.reactor.caseTemp, 0) .. " C")
+   writeRight(round(state.reactor.caseTemp, 0) .. " C")]]
 
-   term.setCursor(1,4)
-   term.write("Power Stored:")
-   writeRight(round(state.energyLevel,0) .. "% " .. format_num(state.energyStored, 0) .. " RF", -1)
-
-   term.setCursor(1,5)
-   term.write("Generating:")
-   setTextColor("yellow")
-   writeRight(format_num(state.reactor.rfPerTick, 2) .. " RF/t")
-   setTextColor("white")
-
-   term.setCursor(1,6)
+   term.setCursor(1,10)
    term.write("Fuel Reactivity:")
-   writeRight(format_num(state.reactor.reactivity, 2) .. "%")
+   writeRight(format_num(state.reactor.reactivity, 0) .. "%")
 
-   term.setCursor(1,7)
+   term.setCursor(1,11)
    term.write("Fuel Consumption:")
    writeRight(format_num(state.reactor.mbPerTick, 3) .. " mB/t")
 
-   term.setCursor(1,8)
+   term.setCursor(1,12)
    term.write("Efficiency:")
    setTextColor("purple")
    if(state.rfPerIngot == nil) then
@@ -282,17 +333,14 @@ local function renderDisplay(state)
    end
    setTextColor("white")
 
-   term.setCursor(1,9)
-   term.write("Rod Insertion:")
-   setTextColor("blue")
-   writeRight(state.reactor.rodInsertion .. "%")
-   setTextColor("white")
-   
+--[[
+   -- dump state values for debug
    term.setCursor(1,10)
    local statecopy = state
    statecopy.reactor = nil
    statecopy.cap = nil
    for k,v in pairs(statecopy) do print(k .. ":       " .. v) end
+   ]]
 end
 
 function getUserInput()
