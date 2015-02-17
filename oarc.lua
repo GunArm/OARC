@@ -343,10 +343,41 @@ local function renderDisplay(state)
    ]]
 end
 
+function showInputOptions()
+   term.clear()
+   print("Options")
+   print("")
+   print("  q     -  quit")
+   print("  pgUp  -  increase resolution")
+   print("  pgDn  -  decrease resolution")
+   getUserInput()
+end
+
+function adjustResolution(change)
+   local maxWidth, maxHeight = component.gpu.maxResolution()
+   local curWidth, curHeight = component.gpu.getResolution()
+   local newWidth = curWidth * change
+   local newHeight = curHeight * change
+   newWidth = newWidth <= maxWidth and newWidth or curWidth
+   newHeight = newHeight <= maxHeight and newHeight or curHeight
+   component.gpu.setResolution(newWidth, newHeight)
+end
+
+
+local inputActions = {
+   [keyboard.keys.q] = function() running = false end,
+   [keyboard.keys.pageUp] = function() adjustResolution(.9) end,
+   [keyboard.keys.pageDown] = function() adjustResolution(1.1) end
+}
+
+
 function getUserInput()
-   _, _, _, c = event.pull(refreshInterval, "key_down")
-   if c == keyboard.keys.enter or c == keyboard.keys.numpadenter then
-      running = false
+   _, _, _, key = event.pull(refreshInterval, "key_down")
+   if key == nil then return end
+   if type(inputActions[key]) ~= "function" then
+      showInputOptions()
+   else
+      inputActions[key]()
    end
 end
 
