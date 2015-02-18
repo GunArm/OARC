@@ -254,7 +254,8 @@ end
 --------------------------------------------------------
 
 local function renderDisplay(state)
-   term.setCursor(1,1)
+   line = 1
+   term.setCursor(1,line)
    if(state.errorMsg ~= nil) then
       setTextColor("red")
       print(state.errorMsg)
@@ -271,59 +272,73 @@ local function renderDisplay(state)
    writeRight(status)
    setTextColor("white")
 
-   term.setCursor(1,2)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Power Stored:")
    writeRight(round(state.energyFullness * 100,2) .. "%  " .. format_num(state.energyStored, 0) .. " RF")
 
-   term.setCursor(1,3)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Generating:")
    setTextColor("yellow")
    writeRight(format_num(state.reactor.rfPerTick, 0) .. " RF/t")
    setTextColor("white")
 
+--[[
    -- this will only be accurate if the reactor is the only thing charging the buffer
-   term.setCursor(1,4)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Load:")
    setTextColor("orange")
    writeRight("(~) " .. format_num(state.reactor.rfPerTick - state.energyStoredDelta, 0) .. " RF/t")
    setTextColor("white")
-
-   term.setCursor(1,5)
+]]
+   
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Delta:")
    --setTextColor((state.energyStoredDelta >= 0) and "green" or "red"))
    writeRight(format_num(state.energyStoredDelta, 2) .. " RF/t")
    --setTextColor("white")
 
-   term.setCursor(1,6)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Throttle:")
    setTextColor("blue")
    writeRight(100 - state.reactor.rodInsertion .. "%")
    setTextColor("white")
 
-   term.setCursor(1,7)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Status:")
    setTextColor(state.adjustmentColor)
    writeRight(state.adjustment)
    setTextColor("white")
 
-
-   term.setCursor(1,9)
+   line = line + 2
+   term.setCursor(1,line)
    term.write("Core Temp:")
    writeRight(round(state.reactor.coreTemp, 0) .. " C")
 
---[[   term.setCursor(1,3)
+--[[
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Case Temp:")
-   writeRight(round(state.reactor.caseTemp, 0) .. " C")]]
+   writeRight(round(state.reactor.caseTemp, 0) .. " C")
+   ]]
 
-   term.setCursor(1,10)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Fuel Reactivity:")
    writeRight(format_num(state.reactor.reactivity, 0) .. "%")
 
-   term.setCursor(1,11)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Fuel Consumption:")
    writeRight(format_num(state.reactor.mbPerTick, 3) .. " mB/t")
 
-   term.setCursor(1,12)
+   line = line + 1
+   term.setCursor(1,line)
    term.write("Efficiency:")
    setTextColor("purple")
    if(state.rfPerIngot == nil) then
@@ -335,7 +350,8 @@ local function renderDisplay(state)
 
 --[[
    -- dump state values for debug
-   term.setCursor(1,10)
+   line = line + 1
+   term.setCursor(1,line)
    local statecopy = state
    statecopy.reactor = nil
    statecopy.cap = nil
